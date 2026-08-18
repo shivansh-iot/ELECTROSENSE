@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ELECTROSENSE — Live Monitor</title>
+<style>
+  :root{
+    --bg:#06090a;
+    --panel:#0b1411;
+    --panel-border:#163025;
+    --green:#39ff8c;
+    --green-dim:#1e8a52;
+    --amber:#ffb000;
+    --cyan:#39e0ff;
+    --red:#ff3b46;
+    --text-dim:#5a7568;
+    --text:#cfe9d8;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Consolas','Courier New',monospace;
+    min-height:100vh;
+    overflow-x:hidden;
+  }
+  body.anomaly-active{ animation: borderPulse 1s infinite; }
+  @keyframes borderPulse{
+    0%,100%{ box-shadow: inset 0 0 0px rgba(255,59,70,0); }
+    50%{ box-shadow: inset 0 0 80px rgba(255,59,70,0.35); }
+  }
+
+  .scanlines{
+    position:fixed; inset:0; pointer-events:none; z-index:50;
+    background:repeating-linear-gradient(
+      to bottom,
+      rgba(57,255,140,0.025) 0px,
+      rgba(57,255,140,0.025) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    mix-blend-mode:overlay;
+  }
+
+  header{
+    display:flex; flex-wrap:wrap; align-items:center; gap:16px;
+    padding:16px 22px;
+    border-bottom:1px solid var(--panel-border);
+    background:linear-gradient(180deg, #0a120f, #060908);
+  }
+  .brand{display:flex; flex-direction:column; gap:2px;}
+  .brand .name{
+    font-size:20px; font-weight:800; letter-spacing:2px; color:var(--green);
+    text-shadow:0 0 8px rgba(57,255,140,0.5);
+  }
+  .brand .tag{font-size:10px; letter-spacing:3px; color:var(--text-dim);}
+
+  .conn{display:flex; align-items:center; gap:10px; margin-left:auto; flex-wrap:wrap;}
+  .conn input{
+    background:#0a1612; border:1px solid var(--panel-border); color:var(--text);
+    font-family:inherit; font-size:13px; padding:8px 10px; border-radius:4px;
+    width:160px; outline:none;
+  }
+  .conn input:focus{border-color:var(--green-dim);}
+  .conn button{
+    background:var(--green-dim); border:none; color:#04140a; font-family:inherit;
+    font-weight:700; font-size:12px; letter-spacing:1px; padding:9px 16px;
+    border-radius:4px; cursor:pointer; transition:filter .15s;
+  }
+  .conn button:hover{filter:brightness(1.2);}
+  .conn button.disconnect{background:var(--red); color:#1a0506;}
+
+  .status{display:flex; align-items:center; gap:7px; font-size:11px; letter-spacing:1px; color:var(--text-dim);}
+  .dot{width:9px; height:9px; border-radius:50%; background:#3a4a43; transition:background .2s;}
+  .dot.live{background:var(--green); box-shadow:0 0 8px var(--green); animation:blink 1s infinite;}
+  .dot.err{background:var(--red); box-shadow:0 0 8px var(--red);}
+  @keyframes blink{0%,100%{opacity:1;}50%{opacity:0.35;}}
+
+  main{
+    display:grid;
+    grid-template-columns: 1fr 320px;
+    gap:16px; padding:18px 22px;
+  }
+  @media (max-width:900px){ main{grid-template-columns:1fr;} }
+
+  .charts{display:flex; flex-direction:column; gap:14px;}
+  .panel{
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:6px;
+    padding:12px 14px;
+  }
+  .panel .ptitle{
+    font-size:11px; letter-spacing:2px; color:var(--text-dim); margin-bottom:6px;
+    display:flex; justify-content:space-between;
+  }
+  .panel .pval{font-size:16px; font-weight:700;}
+  canvas{width:100% !important; height:110px !important;}
+
+  .readouts{display:grid; grid-template-columns:repeat(3,1fr); gap:10px;}
+  .readout-box{
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:6px;
+    padding:10px; text-align:center;
+  }
+  .readout-box .label{font-size:9px; letter-spacing:2px; color:var(--text-dim);}
+  .readout-box .value{
+    font-size:22px; font-weight:800; font-variant-numeric:tabular-nums;
+    text-shadow:0 0 6px currentColor;
+  }
+  .v-volt .value{color:var(--green);}
+  .v-curr .value{color:var(--amber);}
+  .v-pow .value{color:var(--cyan);}
+
+  .sidebar{display:flex; flex-direction:column; gap:14px;}
+  .classif{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:6px;
+    padding:14px;
+  }
+  .classif .tag{font-size:11px; letter-spacing:2px; color:var(--text-dim);}
+  .classif .state{font-size:18px; font-weight:800;}
+  .state.normal{color:var(--green);}
+  .state.fault{color:var(--red);}
+  .classif .conf{font-size:11px; color:var(--text-dim);}
+
+  .health{
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:6px;
+    padding:12px 14px; font-size:12px;
+  }
+  .health .ptitle{font-size:11px; letter-spacing:2px; color:var(--text-dim); margin-bottom:8px;}
+  .health-row{display:flex; justify-content:space-between; padding:3px 0; color:var(--text-dim);}
+  .health-row span.v{color:var(--text); font-weight:700;}
+  .health-row span.v.ok{color:var(--green);}
+  .health-row span.v.stale{color:var(--red);}
+
+  .log{
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:6px;
+    padding:12px 14px; flex:1; min-height:240px; max-height:420px; overflow-y:auto;
+  }
+  .log .ptitle{font-size:11px; letter-spacing:2px; color:var(--text-dim); margin-bottom:8px;}
+  .log-entry{
+    font-size:12px; padding:6px 8px; border-left:3px solid var(--green-dim);
+    margin-bottom:6px; background:#081210;
+  }
+  .log-entry.warn{border-left-color:var(--red); color:#ffb3b6;}
+  .log-entry .t{color:var(--text-dim); margin-right:8px;}
+
+  #anomalyBanner{
+    position:fixed; top:0; left:0; right:0; z-index:100;
+    background:var(--red); color:#1a0506; text-align:center;
+    font-weight:800; letter-spacing:2px; font-size:14px;
+    padding:10px; transform:translateY(-100%); transition:transform .25s ease;
+    box-shadow:0 2px 20px rgba(255,59,70,0.6);
+  }
+  #anomalyBanner.show{transform:translateY(0);}
+</style>
+</head>
+<body>
+  <div class="scanlines"></div>
+  <div id="anomalyBanner">⚠ ANOMALY DETECTED — CHECK COMPONENT</div>
+
+  <header>
+    <div class="brand">
+      <div class="name">ELECTROSENCE</div>
+      <div class="tag">REAL-TIME FAULT MONITOR</div>
+    </div>
+    <div class="conn">
+      <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">DISCONNECTED</span></div>
+      <input id="ipInput" type="text" placeholder="ESP32 IP e.g. 192.168.1.42">
+      <button id="connectBtn">CONNECT</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="charts">
+      <div class="panel">
+        <div class="ptitle"><span>VOLTAGE</span><span class="pval" id="vVoltTitle" style="color:var(--green)">-- V</span></div>
+        <canvas id="voltageChart"></canvas>
+      </div>
+      <div class="panel">
+        <div class="ptitle"><span>CURRENT</span><span class="pval" id="vCurrTitle" style="color:var(--amber)">-- mA</span></div>
+        <canvas id="currentChart"></canvas>
+      </div>
+      <div class="panel">
+        <div class="ptitle"><span>POWER</span><span class="pval" id="vPowTitle" style="color:var(--cyan)">-- mW</span></div>
+        <canvas id="powerChart"></canvas>
+      </div>
+
+      <div class="readouts">
+        <div class="readout-box v-volt"><div class="label">VOLTAGE (V)</div><div class="value" id="rVolt">0.000</div></div>
+        <div class="readout-box v-curr"><div class="label">CURRENT (mA)</div><div class="value" id="rCurr">0.00</div></div>
+        <div class="readout-box v-pow"><div class="label">POWER (mW)</div><div class="value" id="rPow">0.00</div></div>
+      </div>
+    </section>
+
+    <aside class="sidebar">
+      <div class="classif">
+        <div>
+          <div class="tag">CLASSIFICATION</div>
+          <div class="state normal" id="stateLabel">NORMAL</div>
+        </div>
+        <div class="conf" id="stateConf">--</div>
+      </div>
+
+      <div class="health">
+        <div class="ptitle">LINK HEALTH</div>
+        <div class="health-row"><span>Last packet</span><span class="v" id="hLast">—</span></div>
+        <div class="health-row"><span>Msg rate</span><span class="v" id="hRate">0.0 /s</span></div>
+        <div class="health-row"><span>Link status</span><span class="v" id="hStatus">—</span></div>
+      </div>
+
+      <div class="log">
+        <div class="ptitle">EVENT LOG</div>
+        <div id="logList"></div>
+      </div>
+    </aside>
+  </main>
+
+<script>
+  const MAX_POINTS = 60;
+  const buffers = { voltage: [], current: [], power: [], labels: [] };
+  let ws = null;
+  let lastMsgTime = 0;
+  let msgTimes = [];
+  let lastAnomalyState = false;
+  let lastLabel = '';
+
+  function drawChart(canvas, data, color){
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.max(1, Math.floor(rect.width));
+    canvas.height = Math.max(1, Math.floor(rect.height));
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    ctx.strokeStyle = 'rgba(57,255,140,0.08)';
+    ctx.lineWidth = 1;
+    for(let i = 1; i < 4; i++){
+      const y = Math.round(h * i / 4) + 0.5;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+
+    if(!data || data.length < 2) return;
+    const min = Math.min.apply(null, data);
+    const max = Math.max.apply(null, data);
+    const range = (max - min) || 1;
+    const padTop = h * 0.08, padBottom = h * 0.08;
+    const usableH = h - padTop - padBottom;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach(function(v, i){
+      const x = (i / (MAX_POINTS - 1)) * w;
+      const y = h - padBottom - ((v - min) / range) * usableH;
+      if(i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  const voltageChart = document.getElementById('voltageChart');
+  const currentChart  = document.getElementById('currentChart');
+  const powerChart    = document.getElementById('powerChart');
+
+  function pushPoint(arr, v){
+    arr.push(v);
+    if(arr.length > MAX_POINTS) arr.shift();
+  }
+
+  function updateCharts(){
+    drawChart(voltageChart, buffers.voltage, '#39ff8c');
+    drawChart(currentChart, buffers.current, '#ffb000');
+    drawChart(powerChart,   buffers.power,   '#39e0ff');
+  }
+
+  function setStatus(state){
+    const dot = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    const btn = document.getElementById('connectBtn');
+    dot.className = 'dot';
+    if(state === 'connected'){
+      dot.classList.add('live'); text.textContent = 'LIVE';
+      btn.textContent = 'DISCONNECT'; btn.classList.add('disconnect');
+    } else if(state === 'connecting'){
+      text.textContent = 'CONNECTING...';
+      btn.textContent = 'CONNECTING'; btn.classList.remove('disconnect');
+    } else if(state === 'error'){
+      dot.classList.add('err'); text.textContent = 'ERROR';
+      btn.textContent = 'CONNECT'; btn.classList.remove('disconnect');
+    } else {
+      text.textContent = 'DISCONNECTED';
+      btn.textContent = 'CONNECT'; btn.classList.remove('disconnect');
+    }
+  }
+
+  function logEvent(msg, kind){
+    const list = document.getElementById('logList');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry' + (kind === 'warn' ? ' warn' : '');
+    const t = new Date().toLocaleTimeString();
+    entry.innerHTML = '<span class="t">' + t + '</span>' + msg;
+    list.insertBefore(entry, list.firstChild);
+    while(list.children.length > 60) list.removeChild(list.lastChild);
+  }
+
+  function triggerAnomaly(label, conf){
+    document.body.classList.add('anomaly-active');
+    document.getElementById('anomalyBanner').classList.add('show');
+    logEvent('FAULT: ' + label + (conf ? (' (' + conf + '%)') : ''), 'warn');
+  }
+  function clearAnomaly(){
+    document.body.classList.remove('anomaly-active');
+    document.getElementById('anomalyBanner').classList.remove('show');
+  }
+
+  function updateReadouts(v,c,p,label,conf){
+    document.getElementById('rVolt').textContent = v.toFixed(3);
+    document.getElementById('rCurr').textContent = c.toFixed(2);
+    document.getElementById('rPow').textContent  = p.toFixed(2);
+    document.getElementById('vVoltTitle').textContent = v.toFixed(3) + ' V';
+    document.getElementById('vCurrTitle').textContent = c.toFixed(2) + ' mA';
+    document.getElementById('vPowTitle').textContent  = p.toFixed(2) + ' mW';
+
+    const stateEl = document.getElementById('stateLabel');
+    const confEl = document.getElementById('stateConf');
+    const isFault = /fault|anomaly|bad|degrad/i.test(label);
+    stateEl.textContent = label.toUpperCase();
+    stateEl.className = 'state ' + (isFault ? 'fault' : 'normal');
+    confEl.textContent = conf ? (conf + '% conf.') : '--';
+  }
+
+  function handleData(data){
+    const now = performance.now();
+    msgTimes.push(now);
+    msgTimes = msgTimes.filter(t => now - t < 5000);
+    lastMsgTime = now;
+
+    const v = Number(data.voltage) || 0;
+    const c = Number(data.current) || 0;
+    const p = Number(data.power) || 0;
+    const anomaly = !!data.anomaly;
+    const label = data.label || (anomaly ? 'fault' : 'normal');
+    const conf = (data.confidence != null) ? (Number(data.confidence) * 100).toFixed(1) : null;
+
+    pushPoint(buffers.voltage, v);
+    pushPoint(buffers.current, c);
+    pushPoint(buffers.power, p);
+
+    updateReadouts(v, c, p, label, conf);
+    updateCharts();
+
+    if(anomaly && !lastAnomalyState){
+      triggerAnomaly(label, conf);
+    } else if(!anomaly && lastAnomalyState){
+      clearAnomaly();
+      logEvent('Back to normal', null);
+    }
+    lastAnomalyState = anomaly;
+
+    if(label !== lastLabel && !anomaly){
+      logEvent('Classified: ' + label, null);
+    }
+    lastLabel = label;
+  }
+
+  function connect(){
+    const ip = document.getElementById('ipInput').value.trim();
+    if(!ip) return;
+    if(ws){ ws.close(); ws = null; return; }
+    setStatus('connecting');
+    try{
+      ws = new WebSocket('ws://' + ip + ':81');
+    }catch(e){
+      setStatus('error'); logEvent('Failed to open socket', 'warn'); return;
+    }
+    ws.onopen = () => { setStatus('connected'); logEvent('Connected to ' + ip, null); };
+    ws.onclose = () => { setStatus('disconnected'); logEvent('Disconnected', 'warn'); ws = null; };
+    ws.onerror = () => { setStatus('error'); logEvent('Connection error', 'warn'); };
+    ws.onmessage = (evt) => {
+      let data;
+      try{ data = JSON.parse(evt.data); } catch(e){ return; }
+      handleData(data);
+    };
+  }
+
+  document.getElementById('connectBtn').addEventListener('click', connect);
+  document.getElementById('ipInput').addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter') connect();
+  });
+
+  setInterval(() => {
+    const last = document.getElementById('hLast');
+    const rate = document.getElementById('hRate');
+    const status = document.getElementById('hStatus');
+    if(lastMsgTime === 0){
+      last.textContent = '—'; rate.textContent = '0.0 /s';
+      status.textContent = '—'; status.className = 'v';
+      return;
+    }
+    const ageMs = performance.now() - lastMsgTime;
+    last.textContent = (ageMs/1000).toFixed(1) + 's ago';
+    rate.textContent = (msgTimes.length / 5).toFixed(1) + ' /s';
+    if(ageMs < 1000){
+      status.textContent = 'STABLE'; status.className = 'v ok';
+    } else {
+      status.textContent = 'STALE'; status.className = 'v stale';
+    }
+  }, 500);
+
+  updateCharts();
+  window.addEventListener('resize', updateCharts);
+</script>
+</body>
+</html>

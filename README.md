@@ -112,7 +112,7 @@ git clone https://github.com/<your-username>/ELECTROSENSE.git
 ## 👤 Author
 
 **Shivansh-x**
-Final-year B.Tech EEE | Embedded Systems & Edge AI enthusiast
+third-year B.Tech EEE | Embedded Systems & Edge AI enthusiast
 [GitHub](https://github.com/<your-username>) 
 
 ---

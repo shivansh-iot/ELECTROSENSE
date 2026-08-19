@@ -101,7 +101,7 @@ git clone https://github.com/<your-username>/ELECTROSENSE.git
 
 ## 🎥 Demo
 
-[Watch the demo video](YOUR_YOUTUBE_LINK_HERE)
+[Watch the demo video](https://drive.google.com/file/d/1qmQ42h-IWL9yqlAN8hTp7Db3-Fc6y8q1/view?usp=drivesdk)
 
 ## 🔮 Future Improvements
 
